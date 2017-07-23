@@ -1,0 +1,21 @@
+.search-entry {
+  margin: 5px 20px;
+}
+
+.clipboard-action-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.clipboard-action {
+  margin: 0 5px;
+}
+
+.clipboard-action:hover {
+  color: gray;
+}
+
+.edit-entry {
+  padding: 20px;
+  min-width: 200px;
+}

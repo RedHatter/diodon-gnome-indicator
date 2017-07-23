@@ -1,0 +1,6 @@
+{
+  "uuid": "diodongnomeindicator@timothy.idioticdev.com",
+  "description": "Application indicator for the Diodon clipboard manager.",
+  "name": "Diodon Gnome Indicator",
+  "shell-version": ["3.24.2"]
+}
