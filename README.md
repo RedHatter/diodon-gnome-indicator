@@ -7,7 +7,7 @@ Gnome Shell extension providing integration for the [Diodon](https://launchpad.n
 First, install and enable the [DBus Controller](https://github.com/RedHatter/diodon-plugins) plugin for Diodon. Next, run the following commands.
 
 ```bash
-git clone https://github.com/RedHatter/diodon-gnome-indictator
+git clone https://github.com/RedHatter/diodon-gnome-indicator
 cd diodon-gnome-indicator
 sudo install.sh
 ```
