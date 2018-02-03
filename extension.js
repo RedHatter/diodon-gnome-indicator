@@ -2,12 +2,15 @@ const PopupMenu = imports.ui.popupMenu
 const PanelMenu = imports.ui.panelMenu
 const Dialog = imports.ui.modalDialog.ModalDialog
 const Main = imports.ui.main
+
 const Clutter = imports.gi.Clutter
-const Lang = imports.lang
+const Gio = imports.gi.Gio
 const St = imports.gi.St
 
+const Lang = imports.lang
+
 const Extension = imports.misc.extensionUtils.getCurrentExtension()
-const Controller = Extension.imports.controller
+const Controller = Extension.imports.controller.Controller
 
 const DiodonGnomeIndicator = Lang.Class({
   Name: 'DiodonGnomeIndicator',
@@ -19,86 +22,104 @@ const DiodonGnomeIndicator = Lang.Class({
 
   _init () {
     this.parent(0.0, "DiodonGnomeIndicator")
-    let hbox = new St.BoxLayout({
-      style_class: 'panel-status-menu-box clipboard-indicator-hbox'
-    })
-    this.icon = new St.Icon({
-      icon_name: 'edit-paste-symbolic',
-      style_class: 'system-status-icon clipboard-indicator-icon'
-    })
+    this.buildMenu = this.buildMenu.bind(this)
+    this.queryItems = this.queryItems.bind(this)
 
-    hbox.add_child(this.icon)
+    // Icon for menu button
+    let hbox = new St.BoxLayout({ style_class: 'panel-status-menu-box' })
+    hbox.add_child(new St.Icon({
+      icon_name: 'edit-paste-symbolic',
+      style_class: 'system-status-icon'
+    }))
     this.actor.add_child(hbox)
 
+    // Search entry
     let searchSection = new PopupMenu.PopupMenuSection()
-    let entry = new St.Entry({
-      style_class: 'search-entry'
-    })
-    searchSection.actor.add_actor(entry)
     this.menu.addMenuItem(searchSection)
-    entry['clutter-text'].connect('text-changed', () =>
-      this._queryItems(entry.text))
+
+    let entry = new St.Entry({ style_class: 'search-entry' })
+    searchSection.actor.add_actor(entry)
+    entry['clutter-text'].connect('text-changed', () => {
+      // Set filter text and requery items
+      this.searchQuery = entry.text
+      this.queryItems()
+    })
+    entry.set_primary_icon(new St.Icon({
+      style_class: 'clipboard-entry-icon',
+      icon_name: 'edit-find'
+    }))
+
+    // Search entry clear button
+    let clear = new St.Button({
+      child: new St.Icon({
+        style_class: 'clipboard-entry-icon',
+        icon_name: 'edit-clear-symbolic'
+      })
+    })
+    clear.connect('button-press-event', () => entry.text = '')
+    entry.set_secondary_icon(clear)
 
     this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem())
 
+    // Section for clipboard items
     this.historySection = new PopupMenu.PopupMenuSection()
-    this.scrollViewMenuSection = new PopupMenu.PopupMenuSection()
-    let historyScrollView = new St.ScrollView({
-      overlay_scrollbars: true
-    })
+    let scrollViewMenuSection = new PopupMenu.PopupMenuSection()
+    let historyScrollView = new St.ScrollView({ overlay_scrollbars: true })
     historyScrollView.add_actor(this.historySection.actor)
-    this.scrollViewMenuSection.actor.add_actor(historyScrollView)
-    this.menu.addMenuItem(this.scrollViewMenuSection)
+    scrollViewMenuSection.actor.add_actor(historyScrollView)
+    this.menu.addMenuItem(scrollViewMenuSection)
 
-    this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem())
-
-    let menuItem = new PopupMenu.PopupMenuItem(_('Clear'))
-    this.menu.addMenuItem(menuItem)
-    menuItem.connect('activate', () => {
-      Controller.clear().then()
-      this.historySection.removeAll()
-    })
-
-    menuItem = new PopupMenu.PopupMenuItem(_('Preferences'))
-    this.menu.addMenuItem(menuItem)
-    menuItem.connect('activate', () => Controller.showPreferences)
-
-    menuItem = new PopupMenu.PopupMenuItem(_('Quit'))
-    this.menu.addMenuItem(menuItem)
-    menuItem.connect('activate', () => {
-      Controller.quit()
-      this.destroy()
-    })
-
-    Controller.connect('OnRemoveItem', () => this._queryItems())
-    Controller.connect('OnSelectItem', () => this._queryItems())
-    Controller.connect('OnAddItem', () => this._queryItems())
-    Controller.connect('OnClear', () => this._queryItems())
-
-    this._queryItems()
+    // Wait for Diodon
+    Gio.bus_watch_name(
+      Gio.BusType.SESSION, 'org.gnome.zeitgeist.Engine',
+      Gio.BusNameWatcherFlags.NONE,
+      () => this.onZeitgeistStarted(),
+      () => {})
   },
 
-  _queryItems (queryString) {
-    let query = queryString
-      ? Controller.getItemsBySearchQuery(queryString, [], '')
-      : Controller.getRecentItems([], '')
-    query.then(items => {
-      let menuItems = this.historySection._getMenuItems()
-      let length = Math.max(menuItems.length, items.length)
-      for (let i = 0; i < length; i++) {
-        if (i < menuItems.length)
-          menuItems[i].destroy()
-
-        if (i < items.length)
-          this.historySection.addMenuItem(this._createItem(items[i]), i)
-      }
-    })
+  /**
+   * Initializes connection to Diodon and querys items.
+   */
+  onZeitgeistStarted () {
+    this.controller = new Controller(this.queryItems)
+    this.queryItems()
   },
 
-  _createItem (item) {
-    let checksum = item.checksum
+  /**
+   * Retrieves items from Diodon and build menu.
+   */
+  queryItems () {
+    if (this.searchQuery)
+      this.controller.getItemsBySearchQuery(this.searchQuery, this.buildMenu)
+    else
+      this.controller.getRecentItems(this.buildMenu)
+  },
 
-    let menuItem = new PopupMenu.PopupMenuItem(item.label)
+  /**
+   * Clear menu items and rebuild.
+   *
+   * @param items The list of clipboard items to build from
+   */
+  buildMenu (items) {
+    let menuItems = this.historySection._getMenuItems()
+    let length = Math.max(menuItems.length, items.length)
+    for (let i = 0; i < length; i++) {
+      if (i < menuItems.length)
+        menuItems[i].destroy()
+
+      if (i < items.length)
+        this.historySection.addMenuItem(this.createItem(items[i]), i)
+    }
+  },
+
+  /**
+   * Create menu item from clipboard item.
+   *
+   * @param item The clipboard item to build from
+   */
+  createItem (item) {
+    let menuItem = new PopupMenu.PopupMenuItem(item.get_label())
+    menuItem.connect('activate', () => this.selectItem(item))
 
     let buttons = new St.BoxLayout()
     buttons.opacity = 0
@@ -108,29 +129,28 @@ const DiodonGnomeIndicator = Lang.Class({
     menuItem.actor.add_child(buttons)
 
     let edit = new St.Button({
-        style_class: 'clipboard-action',
-        can_focus: true,
-        child: new St.Icon({
-            style_class: 'clipboard-action-icon',
-            icon_name: 'edit-symbolic',
-        })
+      style_class: 'clipboard-action',
+      can_focus: true,
+      child: new St.Icon({
+        style_class: 'clipboard-action-icon',
+        icon_name: 'edit-symbolic',
+      })
     })
-    edit.connect('button-press-event', () => this._editItem(item))
+    edit.connect('button-press-event', () => this.editItem(item))
     buttons.add_child(edit)
 
     let remove = new St.Button({
-        style_class: 'clipboard-action',
-        can_focus: true,
-        child: new St.Icon({
-            style_class: 'clipboard-action-icon',
-            icon_name: 'edit-delete-symbolic',
-        })
+      style_class: 'clipboard-action',
+      can_focus: true,
+      child: new St.Icon({
+        style_class: 'clipboard-action-icon',
+        icon_name: 'edit-delete-symbolic',
+      })
     })
-    remove.connect('button-press-event', () =>
-      Controller.removeItemByChecksum(checksum)
-        .then(() => this._queryItems()))
+    remove.connect('button-press-event', () => this.controller.removeItem(item))
     buttons.add_child(remove)
 
+    // Only show buttons on hover
     menuItem.actor.connect('enter-event', () => {
       if (this.hover) this.hover.opacity = 0
       this.hover = buttons
@@ -138,29 +158,33 @@ const DiodonGnomeIndicator = Lang.Class({
     })
     menuItem.actor.connect('leave-event', () => buttons.opacity = 0)
 
-    menuItem.connect('activate', () => this._selectItem(checksum))
     return menuItem
   },
 
-  _selectItem (checksum) {
-    Controller.selectItemByChecksum(checksum)
-      .then(() => {
-        this.menu.close()
-        this._queryItems()
-      })
+  /**
+   * Select clipboard item. Might paste based on configuration.
+   *
+   * @param item The clipboard item to select
+   */
+  selectItem (item) {
+    this.menu.close()
+    this.controller.selectItem(item)
   },
 
-  _editItem (item) {
+  /**
+   * Open dialog to edit clipboard item.
+   *
+   * @param item The clipboard item to edit
+   */
+  editItem (item) {
     this.menu.close()
 
     let dialog = new Dialog()
 
-    let entry = new St.Entry({
-      style_class: 'edit-entry'
-    })
+    let entry = new St.Entry({ style_class: 'edit-entry' })
     entry['clutter-text']['single-line-mode'] = false
     entry['clutter-text']['activatable'] = false
-    entry.text = item.text
+    entry.text = item.get_text()
     dialog.contentLayout.add(entry)
 
     dialog.addButton({
@@ -173,23 +197,22 @@ const DiodonGnomeIndicator = Lang.Class({
       label: 'Done',
       action: () => {
         dialog.close()
-        Controller.removeItemByChecksum(item.checksum)
-          .then(() => Controller.addTextItem(entry.text, item.origin))
-          .then(() => this._queryItems())
+        this.controller.removeItem(item)
+        this.controller.add_item(item.get_clipboard_type(), text, item.get_origin())
       },
       default: true
     })
 
     dialog.open()
-  },
-
-  _toggleMenu () {
-    this.menu.toggle()
+    entry['clutter-text'].grab_key_focus()
   }
 })
 
+let diodonGnomeIndicator = null
+
 function enable () {
-  Main.panel.addToStatusArea('diodonGnomeIndicator', new DiodonGnomeIndicator(), 1)
+  diodonGnomeIndicator = new DiodonGnomeIndicator()
+  Main.panel.addToStatusArea('diodonGnomeIndicator', diodonGnomeIndicator, 1)
 }
 
 function disable () {

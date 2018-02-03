@@ -2,6 +2,11 @@
   margin: 5px 20px;
 }
 
+.clipboard-entry-icon {
+  width: 20px;
+  height: 20px;
+}
+
 .clipboard-action-icon {
   width: 15px;
   height: 15px;
