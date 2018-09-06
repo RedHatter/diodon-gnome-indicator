@@ -133,7 +133,7 @@ const DiodonGnomeIndicator = Lang.Class({
       can_focus: true,
       child: new St.Icon({
         style_class: 'clipboard-action-icon',
-        icon_name: 'edit-symbolic',
+        icon_name: 'document-edit-symbolic',
       })
     })
     edit.connect('button-press-event', () => this.editItem(item))
